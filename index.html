@@ -1,0 +1,285 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAITH REVERB PRO</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;
+ color:white;
+ font-family:Arial,sans-serif;
+ background:
+ linear-gradient(rgba(8,9,13,.72),rgba(8,9,13,.86)),
+ url("13650.jpg") center/cover fixed;
+ min-height:100vh;
+}
+header{
+ padding:23px;
+ background:rgba(15,16,21,.8);
+ border-bottom:1px solid #444;
+ backdrop-filter:blur(12px);
+}
+.logo{font-size:25px;font-weight:bold;letter-spacing:2px}
+.logo span{color:#e43b49}
+.sub{font-size:11px;color:#aaa;margin-top:7px}
+main{max-width:600px;margin:auto;padding:17px}
+.card{
+ background:rgba(20,21,27,.85);
+ border:1px solid #45454d;
+ border-radius:14px;
+ padding:19px;
+ margin-bottom:15px;
+ backdrop-filter:blur(12px);
+}
+h3{font-size:14px;color:#eee}
+button{
+ width:100%;padding:15px;
+ border:0;border-radius:9px;
+ background:#d92f40;color:white;
+ font-weight:bold;margin:6px 0;
+}
+.secondary{background:#34353e}
+.active{background:#258b61}
+label{
+ display:flex;justify-content:space-between;
+ color:#ccc;font-size:13px;
+ margin:20px 0 10px;
+}
+input[type=range]{width:100%;accent-color:#e43b49}
+input[type=file]{width:100%;margin:12px 0;color:#ccc}
+.status{font-size:12px;color:#aaa;margin-top:12px}
+footer{text-align:center;color:#ddd;padding:25px;font-size:13px}
+</style>
+</head>
+
+<body>
+<header>
+ <div class="logo">LAITH <span>REVERB PRO</span></div>
+ <div class="sub">PROFESSIONAL AUDIO ENGINE</div>
+</header>
+
+<main>
+
+<div class="card">
+ <h3>MICROPHONE</h3>
+ <button id="mic">تشغيل المايك</button>
+ <div class="status" id="status">الميكروفون متوقف</div>
+</div>
+
+<div class="card">
+ <h3>MASTER EFFECT</h3>
+ <button id="effect">ENABLE EFFECT</button>
+
+ <label>REVERB POWER <span id="rvv">250%</span></label>
+ <input id="rv" type="range" min="0" max="300" value="250">
+</div>
+
+<div class="card">
+ <h3>MUSIC PLAYER</h3>
+ <input type="file" id="file" accept="audio/*">
+ <button id="play" class="secondary">تشغيل الأغنية</button>
+ <button id="pause" class="secondary">إيقاف الأغنية</button>
+ <div class="status">الأغنية والمايك يستخدمان نفس محرك الريفيرب</div>
+</div>
+
+<div class="card">
+ <h3>SOUND CONTROL</h3>
+
+ <label>MASTER VOLUME <span id="volv">100%</span></label>
+ <input id="vol" type="range" min="0" max="120" value="100">
+
+ <label>BASS <span id="bassv">50%</span></label>
+ <input id="bass" type="range" min="0" max="100" value="50">
+</div>
+
+</main>
+
+<footer>
+تم التطوير بواسطة ليث
+<br><br>
+LAITH AUDIO SYSTEM
+</footer>
+
+<script>
+let ctx;
+let bus,dry,wet,convolver,bass;
+let compressor,master;
+let micStream,micSource,musicSource;
+let initialized=false;
+let effectOn=true;
+
+const audio=document.getElementById("audio");
+const status=document.getElementById("status");
+
+async function setup(){
+ if(initialized)return;
+
+ ctx=new AudioContext();
+
+ bus=ctx.createGain();
+ dry=ctx.createGain();
+ wet=ctx.createGain();
+ convolver=ctx.createConvolver();
+ bass=ctx.createBiquadFilter();
+ compressor=ctx.createDynamicsCompressor();
+ master=ctx.createGain();
+
+ // REVERB ENGINE
+ let duration=7;
+ let length=ctx.sampleRate*duration;
+ let impulse=ctx.createBuffer(2,length,ctx.sampleRate);
+
+ for(let c=0;c<2;c++){
+  let data=impulse.getChannelData(c);
+  for(let i=0;i<length;i++){
+   let t=i/length;
+   let envelope=Math.pow(1-t,2.4);
+   data[i]=(Math.random()*2-1)*envelope;
+  }
+ }
+
+ convolver.buffer=impulse;
+
+ // Shared processing for mic + music
+ bus.connect(dry);
+ bus.connect(convolver);
+ convolver.connect(wet);
+
+ let sum=ctx.createGain();
+ dry.connect(sum);
+ wet.connect(sum);
+
+ bass.type="lowshelf";
+ bass.frequency.value=150;
+
+ compressor.threshold.value=-12;
+ compressor.knee.value=5;
+ compressor.ratio.value=12;
+ compressor.attack.value=.003;
+ compressor.release.value=.18;
+
+ sum.connect(bass);
+ bass.connect(compressor);
+ compressor.connect(master);
+ master.connect(ctx.destination);
+
+ dry.gain.value=1;
+ wet.gain.value=2.5;
+ master.gain.value=1;
+
+ initialized=true;
+}
+
+async function resumeAudio(){
+ await setup();
+ if(ctx.state==="suspended")await ctx.resume();
+}
+
+document.getElementById("mic").onclick=async()=>{
+ try{
+  await resumeAudio();
+
+  if(micStream){
+   micStream.getTracks().forEach(t=>t.stop());
+   micStream=null;
+   micSource=null;
+   document.getElementById("mic").textContent="تشغيل المايك";
+   status.textContent="الميكروفون متوقف";
+   return;
+  }
+
+  micStream=await navigator.mediaDevices.getUserMedia({
+   audio:{
+    echoCancellation:true,
+    noiseSuppression:true,
+    autoGainControl:false
+   }
+  });
+
+  micSource=ctx.createMediaStreamSource(micStream);
+  micSource.connect(bus);
+
+  document.getElementById("mic").textContent="إيقاف المايك";
+  status.textContent="الميكروفون يعمل";
+
+ }catch(e){
+  status.textContent="خطأ: "+e.message;
+ }
+};
+
+document.getElementById("file").onchange=e=>{
+ if(e.target.files[0]){
+  audio.src=URL.createObjectURL(e.target.files[0]);
+ }
+};
+
+document.getElementById("play").onclick=async()=>{
+ await resumeAudio();
+
+ if(!audio.src){
+  status.textContent="اختار أغنية أولاً";
+  return;
+ }
+
+ if(!musicSource){
+  musicSource=ctx.createMediaElementSource(audio);
+  musicSource.connect(bus);
+ }
+
+ audio.play();
+};
+
+document.getElementById("pause").onclick=()=>{
+ audio.pause();
+};
+
+document.getElementById("rv").oninput=e=>{
+ let v=Number(e.target.value);
+ document.getElementById("rvv").textContent=v+"%";
+
+ if(initialized && effectOn){
+  wet.gain.setTargetAtTime(v/100,ctx.currentTime,.05);
+ }
+};
+
+document.getElementById("vol").oninput=e=>{
+ let v=Number(e.target.value);
+ document.getElementById("volv").textContent=v+"%";
+
+ if(initialized){
+  master.gain.setTargetAtTime(v/100,ctx.currentTime,.05);
+ }
+};
+
+document.getElementById("bass").oninput=e=>{
+ let v=Number(e.target.value);
+ document.getElementById("bassv").textContent=v+"%";
+
+ if(initialized){
+  bass.gain.setTargetAtTime((v-50)*.4,ctx.currentTime,.05);
+ }
+};
+
+document.getElementById("effect").onclick=async()=>{
+ await resumeAudio();
+
+ effectOn=!effectOn;
+
+ let value=Number(document.getElementById("rv").value)/100;
+
+ wet.gain.setTargetAtTime(
+  effectOn?value:0,
+  ctx.currentTime,.05
+ );
+
+ let btn=document.getElementById("effect");
+ btn.textContent=effectOn?"EFFECT ENABLED":"EFFECT DISABLED";
+ btn.classList.toggle("active",effectOn);
+};
+</script>
+</body>
+</html>
